@@ -1,0 +1,17 @@
+{
+  "name": "roblox-http",
+  "version": "1.0.0",
+  "description": "Local HTTP server that lets Roblox fetch YouTube Music audio streams via HttpService",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/server.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "play-dl": "^1.9.7"
+  }
+}
