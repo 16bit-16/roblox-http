@@ -82,9 +82,12 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
     const prev = nowPlaying[userId] || {}
     if (title !== prev.title || artist !== prev.artist) {
         nowPlaying[userId] = {
-            title: title.length > 20 ? title.slice(0, 20) + '...' : title,
-            artist: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
-            albumArt: albumArt || ''
+            title,
+            artist,
+            albumArt: albumArt || '',
+            // 로블록스용 짧은 버전
+            titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
+            artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
         }
         console.log(`🎵 ${req.user.username} | ${artist} - ${title}`)
     }
@@ -92,21 +95,23 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
     res.sendStatus(200)
 })
 
+
 // 현재 재생 중인 트랙 조회 (로블록스)
 app.get('/nowplaying/:userId', (req, res) => {
     const data = nowPlaying[req.params.userId]
     if (!data) return res.status(404).json({ title: '', artist: '' })
-    res.json(data)
+    res.json({ title: data.titleShort, artist: data.artistShort })
 })
 
 // 내 정보 조회
 app.get('/me', authMiddleware, (req, res) => {
     const { userId, username, avatar } = req.user
+    const np = nowPlaying[userId] || { title: '', artist: '', albumArt: '' }
     res.json({
         userId,
         username,
         avatar,
-        nowPlaying: nowPlaying[userId] || { title: '', artist: '' }
+        nowPlaying: { title: np.title, artist: np.artist, albumArt: np.albumArt }
     })
 })
 
