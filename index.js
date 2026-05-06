@@ -76,14 +76,15 @@ function authMiddleware(req, res, next) {
 
 // 현재 재생 중인 트랙 업데이트 (확장 프로그램)
 app.post('/nowplaying', authMiddleware, (req, res) => {
-    const { title, artist } = req.body
+    const { title, artist, albumArt } = req.body
     const { userId } = req.user
 
     const prev = nowPlaying[userId] || {}
     if (title !== prev.title || artist !== prev.artist) {
         nowPlaying[userId] = {
             title: title.length > 20 ? title.slice(0, 20) + '...' : title,
-            artist: artist.length > 20 ? artist.slice(0, 20) + '...' : artist
+            artist: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
+            albumArt: albumArt || ''
         }
         console.log(`🎵 ${req.user.username} | ${artist} - ${title}`)
     }
@@ -100,9 +101,15 @@ app.get('/nowplaying/:userId', (req, res) => {
 
 // 내 정보 조회
 app.get('/me', authMiddleware, (req, res) => {
-    res.json(req.user)
+    const { userId, username, avatar } = req.user
+    res.json({
+        userId,
+        username,
+        avatar,
+        nowPlaying: nowPlaying[userId] || { title: '', artist: '' }
+    })
 })
 
 app.listen(3000, () => {
-    console.log('✅ 서버 실행 중 | http://localhost:3000')
+    console.log('서버 실행 중 | http://localhost:3000')
 })
