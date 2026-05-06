@@ -55,7 +55,7 @@ app.get('/auth/callback', async (req, res) => {
         const token = jwt.sign({ userId, username, avatar }, process.env.JWT_SECRET)
 
         // 프론트로 리다이렉트
-        res.redirect(`https://ksmusic.shop/dashboard?token=${token}`)
+        res.redirect(`https://www.ksmusic.shop/dashboard?token=${token}`)
     } catch (err) {
         console.error(err.response?.data || err.message)
         res.status(500).send('인증 실패')
