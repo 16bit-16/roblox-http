@@ -16,7 +16,7 @@ const users = {}       // { userId: { username, avatar } }
 app.get('/auth/login', (req, res) => {
     const params = new URLSearchParams({
         client_id: process.env.ROBLOX_CLIENT_ID,
-        redirect_uri: 'https://ksmusic.shop/auth/callback',
+        redirect_uri: 'https://ksmusic.shop/api/auth/callback',
         response_type: 'code',
         scope: 'openid profile',
     })
@@ -33,7 +33,7 @@ app.get('/auth/callback', async (req, res) => {
             client_id: process.env.ROBLOX_CLIENT_ID,
             client_secret: process.env.ROBLOX_CLIENT_SECRET,
             grant_type: 'authorization_code',
-            redirect_uri: 'https://ksmusic.shop/auth/callback',
+            redirect_uri: 'https://ksmusic.shop/api/auth/callback',
             code,
         }), {
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
