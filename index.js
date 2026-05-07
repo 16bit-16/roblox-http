@@ -76,7 +76,7 @@ function authMiddleware(req, res, next) {
 
 // 현재 재생 중인 트랙 업데이트 (확장 프로그램)
 app.post('/nowplaying', authMiddleware, (req, res) => {
-    const { title, artist, albumArt } = req.body
+    const { title, artist, albumArt, current, total } = req.body
     const { userId } = req.user
 
     const prev = nowPlaying[userId] || {}
@@ -85,11 +85,18 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
             title,
             artist,
             albumArt: albumArt || '',
-            // 로블록스용 짧은 버전
+            current: current || '0:00',
+            total: total || '0:00',
             titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
             artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
         }
         console.log(`🎵 ${req.user.username} | ${artist} - ${title}`)
+    } else {
+        // 노래 같아도 재생 시간은 업데이트
+        if (nowPlaying[userId]) {
+            nowPlaying[userId].current = current || '0:00'
+            nowPlaying[userId].total = total || '0:00'
+        }
     }
 
     res.sendStatus(200)
@@ -106,12 +113,18 @@ app.get('/nowplaying/:userId', (req, res) => {
 // 내 정보 조회
 app.get('/me', authMiddleware, (req, res) => {
     const { userId, username, avatar } = req.user
-    const np = nowPlaying[userId] || { title: '', artist: '', albumArt: '' }
+    const np = nowPlaying[userId] || { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00' }
     res.json({
         userId,
         username,
         avatar,
-        nowPlaying: { title: np.title, artist: np.artist, albumArt: np.albumArt }
+        nowPlaying: { 
+            title: np.title, 
+            artist: np.artist, 
+            albumArt: np.albumArt,
+            current: np.current,
+            total: np.total
+        }
     })
 })
 
