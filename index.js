@@ -49,7 +49,7 @@ app.get('/auth/callback', async (req, res) => {
         const { sub: userId, name: username, picture: avatar } = userRes.data
 
         users[userId] = { username, avatar }
-        nowPlaying[userId] = { title: '', artist: '' }
+        nowPlaying[userId] = { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00', isPlaying: false }
 
         // JWT 발급
         const token = jwt.sign({ userId, username, avatar }, process.env.JWT_SECRET)
