@@ -74,9 +74,9 @@ function authMiddleware(req, res, next) {
     }
 }
 
-// 현재 재생 중인 트랙 업데이트 (확장 프로그램)
+// 긁어서 저장
 app.post('/nowplaying', authMiddleware, (req, res) => {
-    const { title, artist, albumArt, current, total } = req.body
+    const { title, artist, albumArt, current, total, isPlaying } = req.body
     const { userId } = req.user
 
     const prev = nowPlaying[userId] || {}
@@ -87,43 +87,38 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
             albumArt: albumArt || '',
             current: current || '0:00',
             total: total || '0:00',
+            isPlaying: isPlaying ?? true,
             titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
             artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
         }
         console.log(`🎵 ${req.user.username} | ${artist} - ${title}`)
     } else {
-        // 노래 같아도 재생 시간은 업데이트
         if (nowPlaying[userId]) {
             nowPlaying[userId].current = current || '0:00'
             nowPlaying[userId].total = total || '0:00'
+            nowPlaying[userId].isPlaying = isPlaying ?? true
         }
     }
 
     res.sendStatus(200)
 })
 
+// 대시보드 재생 시간용
 app.post('/nowplaying/time', authMiddleware, (req, res) => {
-    const { current, total } = req.body
+    const { current, total, isPlaying } = req.body
     const { userId } = req.user
     if (nowPlaying[userId]) {
         nowPlaying[userId].current = current || '0:00'
         nowPlaying[userId].total = total || '0:00'
+        nowPlaying[userId].isPlaying = isPlaying ?? true
     }
     res.sendStatus(200)
 })
 
-
-// 현재 재생 중인 트랙 조회 (로블록스)
-app.get('/nowplaying/:userId', (req, res) => {
-    const data = nowPlaying[req.params.userId]
-    if (!data) return res.status(404).json({ title: '', artist: '' })
-    res.json({ title: data.titleShort, artist: data.artistShort })
-})
-
-// 내 정보 조회
+// 메모리 반환
 app.get('/me', authMiddleware, (req, res) => {
     const { userId, username, avatar } = req.user
-    const np = nowPlaying[userId] || { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00' }
+    const np = nowPlaying[userId] || { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00', isPlaying: false }
     res.json({
         userId,
         username,
@@ -133,9 +128,17 @@ app.get('/me', authMiddleware, (req, res) => {
             artist: np.artist, 
             albumArt: np.albumArt,
             current: np.current,
-            total: np.total
+            total: np.total,
+            isPlaying: np.isPlaying
         }
     })
+})
+
+// 로블록스용 API
+app.get('/nowplaying/:userId', (req, res) => {
+    const data = nowPlaying[req.params.userId]
+    if (!data) return res.status(404).json({ title: '', artist: '' })
+    res.json({ title: data.titleShort, artist: data.artistShort })
 })
 
 app.listen(3000, () => {
