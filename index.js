@@ -137,7 +137,7 @@ app.get('/me', authMiddleware, (req, res) => {
 // 로블록스용 API
 app.get('/nowplaying/:userId', (req, res) => {
     const data = nowPlaying[req.params.userId]
-    if (!data) return res.status(404).json({ title: '', artist: '' })
+    if (!data) return res.json({ title: '', artist: '' })  // 404 대신 빈값
     res.json({ title: data.titleShort, artist: data.artistShort })
 })
 
