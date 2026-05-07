@@ -102,6 +102,16 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
     res.sendStatus(200)
 })
 
+app.post('/nowplaying/time', authMiddleware, (req, res) => {
+    const { current, total } = req.body
+    const { userId } = req.user
+    if (nowPlaying[userId]) {
+        nowPlaying[userId].current = current || '0:00'
+        nowPlaying[userId].total = total || '0:00'
+    }
+    res.sendStatus(200)
+})
+
 
 // 현재 재생 중인 트랙 조회 (로블록스)
 app.get('/nowplaying/:userId', (req, res) => {
