@@ -11,6 +11,7 @@ app.use(express.json())
 
 const nowPlaying = {}  // { userId: { title, artist } }
 const users = {}       // { userId: { username, avatar } }
+const spotifyTokens = {}  // { userId: { access_token, refresh_token, expires_at } }
 
 // 로블록스 OAuth 로그인
 app.get('/auth/login', (req, res) => {
@@ -140,6 +141,128 @@ app.get('/nowplaying/:userId', (req, res) => {
     if (!data) return res.json({ title: '', artist: '' })  // 404 대신 빈값
     res.json({ title: data.titleShort, artist: data.artistShort })
 })
+
+// 스포티파이 로그인
+app.get('/spotify/login', authMiddleware, (req, res) => {
+    const params = new URLSearchParams({
+        client_id: process.env.SPOTIFY_CLIENT_ID,
+        redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
+        response_type: 'code',
+        scope: 'user-read-currently-playing user-read-playback-state',
+        state: req.user.userId
+    })
+    res.redirect(`https://accounts.spotify.com/authorize?${params}`)
+})
+
+// 스포티파이 콜백
+app.get('/spotify/callback', async (req, res) => {
+    const { code, state: userId } = req.query
+
+    try {
+        const tokenRes = await axios.post('https://accounts.spotify.com/api/token',
+            new URLSearchParams({
+                grant_type: 'authorization_code',
+                code,
+                redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
+            }), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`
+            }
+        })
+
+        const { access_token, refresh_token, expires_in } = tokenRes.data
+        spotifyTokens[userId] = { access_token, refresh_token, expires_at: Date.now() + expires_in * 1000 }
+
+        res.redirect('https://www.ksmusic.shop/dashboard')
+    } catch (err) {
+        console.error(err.response?.data || err.message)
+        res.status(500).send('스포티파이 인증 실패')
+    }
+})
+
+// 스포티파이 토큰 갱신
+async function refreshSpotifyToken(userId) {
+    const tokens = spotifyTokens[userId]
+    if (!tokens) return null
+
+    if (Date.now() < tokens.expires_at - 60000) return tokens.access_token
+
+    try {
+        const res = await axios.post('https://accounts.spotify.com/api/token',
+            new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: tokens.refresh_token,
+            }), {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`
+            }
+        })
+
+        spotifyTokens[userId].access_token = res.data.access_token
+        spotifyTokens[userId].expires_at = Date.now() + res.data.expires_in * 1000
+        return res.data.access_token
+    } catch (err) {
+        console.error('토큰 갱신 실패:', err.response?.data || err.message)
+        return null
+    }
+}
+
+// 스포티파이 현재 재생 트랙 폴링
+async function pollSpotify(userId) {
+    const access_token = await refreshSpotifyToken(userId)
+    if (!access_token) return
+
+    try {
+        const res = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
+            headers: { Authorization: `Bearer ${access_token}` }
+        })
+
+        if (res.status === 204 || !res.data) return
+
+        const { item, is_playing, progress_ms } = res.data
+        const title = item.name
+        const artist = item.artists.map(a => a.name).join(', ')
+        const albumArt = item.album.images[0]?.url || ''
+        const current = `${Math.floor(progress_ms / 60000)}:${String(Math.floor((progress_ms % 60000) / 1000)).padStart(2, '0')}`
+        const total = `${Math.floor(item.duration_ms / 60000)}:${String(Math.floor((item.duration_ms % 60000) / 1000)).padStart(2, '0')}`
+
+        const prev = nowPlaying[userId] || {}
+        if (title !== prev.title || artist !== prev.artist) {
+            nowPlaying[userId] = {
+                title,
+                artist,
+                albumArt,
+                current,
+                total,
+                isPlaying: is_playing,
+                titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
+                artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
+                source: 'spotify'
+            }
+            console.log(`🎵 ${userId} | ${artist} - ${title} (Spotify)`)
+        } else {
+            nowPlaying[userId].current = current
+            nowPlaying[userId].isPlaying = is_playing
+        }
+    } catch (err) {
+        if (err.response?.status !== 204) {
+            console.error('스포티파이 폴링 실패:', err.response?.data || err.message)
+        }
+    }
+}
+
+// 스포티파이 연동 여부 확인
+app.get('/spotify/status', authMiddleware, (req, res) => {
+    const { userId } = req.user
+    res.json({ connected: !!spotifyTokens[userId] })
+})
+
+// 3초마다 스포티파이 폴링
+setInterval(() => {
+    Object.keys(spotifyTokens).forEach(userId => pollSpotify(userId))
+}, 3000)
 
 app.listen(3000, () => {
     console.log('서버 실행 중 | http://localhost:3000')
