@@ -143,15 +143,23 @@ app.get('/nowplaying/:userId', (req, res) => {
 })
 
 // 스포티파이 로그인
-app.get('/spotify/login', authMiddleware, (req, res) => {
-    const params = new URLSearchParams({
-        client_id: process.env.SPOTIFY_CLIENT_ID,
-        redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
-        response_type: 'code',
-        scope: 'user-read-currently-playing user-read-playback-state',
-        state: req.user.userId
-    })
-    res.redirect(`https://accounts.spotify.com/authorize?${params}`)
+app.get('/spotify/login', (req, res) => {
+    const token = req.query.token || req.headers.authorization?.split(' ')[1]
+    if (!token) return res.sendStatus(401)
+    
+    try {
+        const user = jwt.verify(token, process.env.JWT_SECRET)
+        const params = new URLSearchParams({
+            client_id: process.env.SPOTIFY_CLIENT_ID,
+            redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
+            response_type: 'code',
+            scope: 'user-read-currently-playing user-read-playback-state',
+            state: user.userId
+        })
+        res.redirect(`https://accounts.spotify.com/authorize?${params}`)
+    } catch {
+        res.sendStatus(401)
+    }
 })
 
 // 스포티파이 콜백
