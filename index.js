@@ -137,6 +137,7 @@ app.post('/source', authMiddleware, (req, res) => {
     const { source } = req.body
     const { userId } = req.user
     activeSource[userId] = source
+    nowPlaying[userId] = { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00', isPlaying: false }
     res.sendStatus(200)
 })
 
