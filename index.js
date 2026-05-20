@@ -204,8 +204,11 @@ async function pollLastfm(userId) {
             }
         })
 
-        const track = res.data.recenttracks.track[0]
-        if (!track['@attr']?.nowplaying) return
+        const tracks = res.data.recenttracks?.track
+        if (!tracks) return
+        
+        const track = Array.isArray(tracks) ? tracks[0] : tracks
+        if (!track || !track['@attr']?.nowplaying) return
 
         const title = track.name
         const artist = track.artist['#text']
