@@ -10,7 +10,7 @@ app.use(express.json())
 
 const nowPlaying = {}
 const users = {}
-const spotifyTokens = {}
+const lastfmTokens = {}
 const activeSource = {}
 
 // 로블록스 OAuth 로그인
@@ -69,7 +69,7 @@ function authMiddleware(req, res, next) {
 app.post('/nowplaying', authMiddleware, (req, res) => {
     const { title, artist, albumArt, current, total, isPlaying } = req.body
     const { userId } = req.user
-    if (activeSource[userId] === 'spotify') return res.sendStatus(200)
+    if (activeSource[userId] === 'lastfm') return res.sendStatus(200)
 
     const prev = nowPlaying[userId] || {}
     if (title !== prev.title || artist !== prev.artist) {
@@ -141,125 +141,94 @@ app.post('/source', authMiddleware, (req, res) => {
     res.sendStatus(200)
 })
 
-// 스포티파이 로그인
-app.get('/spotify/login', (req, res) => {
-    const token = req.query.token || req.headers.authorization?.split(' ')[1]
-    if (!token) return res.sendStatus(401)
-    try {
-        const user = jwt.verify(token, process.env.JWT_SECRET)
-        const params = new URLSearchParams({
-            client_id: process.env.SPOTIFY_CLIENT_ID,
-            redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
-            response_type: 'code',
-            scope: 'user-read-currently-playing user-read-playback-state',
-            state: user.userId
-        })
-        res.redirect(`https://accounts.spotify.com/authorize?${params}`)
-    } catch {
-        res.sendStatus(401)
-    }
+// Last.fm 로그인
+app.get('/lastfm/login', authMiddleware, (req, res) => {
+    const params = new URLSearchParams({
+        api_key: process.env.LASTFM_API_KEY,
+        cb: `https://api.ksmusic.shop/lastfm/callback?userId=${req.user.userId}`
+    })
+    res.redirect(`https://www.last.fm/api/auth?${params}`)
 })
 
-// 스포티파이 콜백
-app.get('/spotify/callback', async (req, res) => {
-    const { code, state: userId } = req.query
+// Last.fm 콜백
+app.get('/lastfm/callback', async (req, res) => {
+    const { token, userId } = req.query
+
     try {
-        const tokenRes = await axios.post('https://accounts.spotify.com/api/token',
-            new URLSearchParams({
-                grant_type: 'authorization_code',
-                code,
-                redirect_uri: 'https://api.ksmusic.shop/spotify/callback',
-            }), {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`
+        const md5 = require('crypto')
+        const sig = md5.createHash('md5')
+            .update(`api_key${process.env.LASTFM_API_KEY}methodauth.getSessiontoken${token}${process.env.LASTFM_SECRET}`)
+            .digest('hex')
+
+        const sessionRes = await axios.get('https://ws.audioscrobbler.com/2.0/', {
+            params: {
+                method: 'auth.getSession',
+                api_key: process.env.LASTFM_API_KEY,
+                token,
+                api_sig: sig,
+                format: 'json'
             }
         })
 
-        const { access_token, refresh_token, expires_in } = tokenRes.data
-        spotifyTokens[userId] = { access_token, refresh_token, expires_at: Date.now() + expires_in * 1000 }
+        const { key: sessionKey, name: username } = sessionRes.data.session
+        lastfmTokens[userId] = { sessionKey, username }
+
         res.redirect('https://www.ksmusic.shop/dashboard')
     } catch (err) {
         console.error(err.response?.data || err.message)
-        res.status(500).send('스포티파이 인증 실패')
+        res.status(500).send('Last.fm 인증 실패')
     }
 })
 
-// 스포티파이 토큰 갱신
-async function refreshSpotifyToken(userId) {
-    const tokens = spotifyTokens[userId]
-    if (!tokens) return null
-    if (Date.now() < tokens.expires_at - 60000) return tokens.access_token
+// Last.fm 현재 재생 트랙 폴링
+async function pollLastfm(userId) {
+    if (activeSource[userId] !== 'lastfm') return
+    const tokens = lastfmTokens[userId]
+    if (!tokens) return
 
     try {
-        const res = await axios.post('https://accounts.spotify.com/api/token',
-            new URLSearchParams({
-                grant_type: 'refresh_token',
-                refresh_token: tokens.refresh_token,
-            }), {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': `Basic ${Buffer.from(`${process.env.SPOTIFY_CLIENT_ID}:${process.env.SPOTIFY_CLIENT_SECRET}`).toString('base64')}`
+        const res = await axios.get('https://ws.audioscrobbler.com/2.0/', {
+            params: {
+                method: 'user.getRecentTracks',
+                user: tokens.username,
+                api_key: process.env.LASTFM_API_KEY,
+                format: 'json',
+                limit: 1
             }
         })
-        spotifyTokens[userId].access_token = res.data.access_token
-        spotifyTokens[userId].expires_at = Date.now() + res.data.expires_in * 1000
-        return res.data.access_token
-    } catch (err) {
-        console.error('토큰 갱신 실패:', err.response?.data || err.message)
-        return null
-    }
-}
 
-// 스포티파이 폴링
-async function pollSpotify(userId) {
-    if (activeSource[userId] !== 'spotify') return
-    const access_token = await refreshSpotifyToken(userId)
-    if (!access_token) return
+        const track = res.data.recenttracks.track[0]
+        if (!track['@attr']?.nowplaying) return
 
-    try {
-        const res = await axios.get('https://api.spotify.com/v1/me/player/currently-playing', {
-            headers: { Authorization: `Bearer ${access_token}` }
-        })
-        if (res.status === 204 || !res.data) return
-
-        const { item, is_playing, progress_ms } = res.data
-        const title = item.name
-        const artist = item.artists.map(a => a.name).join(', ')
-        const albumArt = item.album.images[0]?.url || ''
-        const current = `${Math.floor(progress_ms / 60000)}:${String(Math.floor((progress_ms % 60000) / 1000)).padStart(2, '0')}`
-        const total = `${Math.floor(item.duration_ms / 60000)}:${String(Math.floor((item.duration_ms % 60000) / 1000)).padStart(2, '0')}`
+        const title = track.name
+        const artist = track.artist['#text']
+        const albumArt = track.image.find(i => i.size === 'extralarge')?.['#text'] || ''
 
         const prev = nowPlaying[userId] || {}
         if (title !== prev.title || artist !== prev.artist) {
             nowPlaying[userId] = {
-                title, artist, albumArt, current, total,
-                isPlaying: is_playing,
+                title, artist, albumArt,
+                current: '0:00', total: '0:00', isPlaying: true,
                 titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
                 artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
-                source: 'spotify'
+                source: 'lastfm'
             }
-            console.log(`🎵 ${userId} | ${artist} - ${title} (Spotify)`)
-        } else {
-            nowPlaying[userId].current = current
-            nowPlaying[userId].isPlaying = is_playing
+            console.log(`🎵 ${users[userId]?.username || userId} | ${artist} - ${title} (Last.fm)`)
         }
     } catch (err) {
-        if (err.response?.status !== 204) {
-            console.error('스포티파이 폴링 실패:', err.response?.data || err.message)
-        }
+        console.error('Last.fm 폴링 실패:', err.response?.data || err.message)
     }
 }
 
-// 스포티파이 연동 여부
-app.get('/spotify/status', authMiddleware, (req, res) => {
+// Last.fm 연동 여부
+app.get('/lastfm/status', authMiddleware, (req, res) => {
     const { userId } = req.user
-    res.json({ connected: !!spotifyTokens[userId] })
+    res.json({ connected: !!lastfmTokens[userId] })
 })
 
-// 3초마다 스포티파이 폴링
+// 3초마다 Last.fm 폴링
 setInterval(() => {
-    Object.keys(spotifyTokens).forEach(userId => pollSpotify(userId))
+    Object.keys(lastfmTokens).forEach(userId => pollLastfm(userId))
 }, 3000)
 
 app.listen(3000, () => {
