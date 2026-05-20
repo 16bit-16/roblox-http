@@ -142,12 +142,19 @@ app.post('/source', authMiddleware, (req, res) => {
 })
 
 // Last.fm 로그인
-app.get('/lastfm/login', authMiddleware, (req, res) => {
-    const params = new URLSearchParams({
-        api_key: process.env.LASTFM_API_KEY,
-        cb: `https://api.ksmusic.shop/lastfm/callback?userId=${req.user.userId}`
-    })
-    res.redirect(`https://www.last.fm/api/auth?${params}`)
+app.get('/lastfm/login', (req, res) => {
+    const token = req.query.token || req.headers.authorization?.split(' ')[1]
+    if (!token) return res.sendStatus(401)
+    try {
+        const user = jwt.verify(token, process.env.JWT_SECRET)
+        const params = new URLSearchParams({
+            api_key: process.env.LASTFM_API_KEY,
+            cb: `https://api.ksmusic.shop/lastfm/callback?userId=${user.userId}`
+        })
+        res.redirect(`https://www.last.fm/api/auth?${params}`)
+    } catch {
+        res.sendStatus(401)
+    }
 })
 
 // Last.fm 콜백
