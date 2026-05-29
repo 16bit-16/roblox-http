@@ -37,18 +37,24 @@ app.get('/auth/callback', async (req, res) => {
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })
 
         const { access_token } = tokenRes.data
+        console.log('토큰 교환 성공')
+
         const userRes = await axios.get('https://apis.roblox.com/oauth/v1/userinfo', {
             headers: { Authorization: `Bearer ${access_token}` }
         })
 
         const { sub: userId, name: username, picture: avatar } = userRes.data
+        console.log(`로그인 성공 | ${username} (${userId})`)
+
         users[userId] = { username, avatar }
         nowPlaying[userId] = { title: '', artist: '', albumArt: '', current: '0:00', total: '0:00', isPlaying: false }
 
         const token = jwt.sign({ userId, username, avatar }, process.env.JWT_SECRET)
+        console.log(`JWT 발급 완료 | ${username}`)
+
         res.redirect(`https://www.ksmusic.shop/dashboard?token=${token}`)
     } catch (err) {
-        console.error(err.response?.data || err.message)
+        console.error(`로그인 실패 | ${err.response?.data ? JSON.stringify(err.response.data) : err.message}`)
         res.status(500).send('인증 실패')
     }
 })
@@ -83,7 +89,7 @@ app.post('/nowplaying', authMiddleware, (req, res) => {
             titleShort: title.length > 20 ? title.slice(0, 20) + '...' : title,
             artistShort: artist.length > 20 ? artist.slice(0, 20) + '...' : artist,
         }
-        console.log(`🎵 ${req.user.username} | ${artist} - ${title}`)
+        console.log(`🎵 ${req.user.username} | ${artist} - ${title}  (youtube music)`)
     } else {
         if (nowPlaying[userId]) {
             nowPlaying[userId].current = current || '0:00'
