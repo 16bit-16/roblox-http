@@ -247,6 +247,128 @@ setInterval(() => {
     Object.keys(lastfmTokens).forEach(userId => pollLastfm(userId))
 }, 3000)
 
+
+// ============================================================
+// 주유소 유가 공지 (로블록스 → 디스코드 중계)
+//
+// 로블록스 HttpService는 discord.com 을 차단하므로
+// 웹훅 호출은 반드시 이 서버를 거쳐야 함
+// ============================================================
+
+const FUEL_RELAY_SECRET = process.env.FUEL_RELAY_SECRET
+const FUEL_DISCORD_WEBHOOK = process.env.FUEL_DISCORD_WEBHOOK
+
+if (!FUEL_RELAY_SECRET || !FUEL_DISCORD_WEBHOOK) {
+    console.warn('⚠️  FUEL_RELAY_SECRET 또는 FUEL_DISCORD_WEBHOOK 미설정 — 유가 공지 비활성')
+}
+
+let fuelLastAnnounceAt = 0
+let fuelPrevPrices = null
+let fuelCurrentPrices = null
+
+const FUEL_MIN_INTERVAL_MS = 5000
+
+const FUEL_EMOJI = {
+    gasoline: '⛽',
+    diesel: '🛢️',
+    lpg: '🔥',
+    cng: '💨',
+}
+
+function fuelFormatWon(n) {
+    return n.toLocaleString('ko-KR') + '원'
+}
+
+function fuelFormatDelta(current, previous) {
+    if (previous === null || previous === undefined) return ''
+    const diff = current - previous
+    if (diff === 0) return ' (변동 없음)'
+    const arrow = diff > 0 ? '▲' : '▼'
+    return ` (${arrow} ${Math.abs(diff).toLocaleString('ko-KR')})`
+}
+
+function fuelBuildEmbed({ prices, fuelTypes, setBy }) {
+    const fields = fuelTypes.map(ft => {
+        const price = prices[ft.id]
+        const prev = fuelPrevPrices ? fuelPrevPrices[ft.id] : null
+        return {
+            name: `${FUEL_EMOJI[ft.id] || '⛽'} ${ft.label}`,
+            value: `**${fuelFormatWon(price)}**${fuelFormatDelta(price, prev)}`,
+            inline: true,
+        }
+    })
+
+    const now = new Date()
+    const dateStr = now.toLocaleDateString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+    })
+
+    return {
+        title: '⛽ 오늘의 유가',
+        description: dateStr,
+        color: 0x4a90d9,
+        fields,
+        footer: { text: setBy?.name ? `설정: ${setBy.name}` : '유가 정보' },
+        timestamp: now.toISOString(),
+    }
+}
+
+function fuelValidate(body) {
+    if (!body || typeof body !== 'object') return '요청 본문 오류'
+    if (body.secret !== FUEL_RELAY_SECRET) return 'unauthorized'
+    if (!body.prices || typeof body.prices !== 'object') return 'prices 없음'
+    if (!Array.isArray(body.fuelTypes) || body.fuelTypes.length === 0) return 'fuelTypes 없음'
+
+    for (const ft of body.fuelTypes) {
+        const v = body.prices[ft.id]
+        if (typeof v !== 'number' || !Number.isFinite(v)) return `${ft.id} 값 오류`
+        if (v < 0 || v > 100000) return `${ft.id} 범위 초과`
+    }
+    return null
+}
+
+app.post('/fuel/announce', async (req, res) => {
+    if (!FUEL_RELAY_SECRET || !FUEL_DISCORD_WEBHOOK) {
+        return res.status(503).json({ ok: false, error: 'not configured' })
+    }
+
+    const error = fuelValidate(req.body)
+    if (error === 'unauthorized') return res.status(401).json({ ok: false })
+    if (error) return res.status(400).json({ ok: false, error })
+
+    const now = Date.now()
+    if (now - fuelLastAnnounceAt < FUEL_MIN_INTERVAL_MS) {
+        return res.status(429).json({ ok: false, error: 'too many requests' })
+    }
+    fuelLastAnnounceAt = now
+
+    try {
+        const webhookRes = await axios.post(FUEL_DISCORD_WEBHOOK, {
+            embeds: [fuelBuildEmbed(req.body)]
+        }, { headers: { 'Content-Type': 'application/json' } })
+
+        fuelPrevPrices = fuelCurrentPrices
+        fuelCurrentPrices = { ...req.body.prices }
+
+        const summary = req.body.fuelTypes
+            .map(ft => `${ft.label} ${req.body.prices[ft.id]}`)
+            .join(' | ')
+        console.log(`⛽ 유가 공지 | ${req.body.setBy?.name || '?'} | ${summary}`)
+
+        res.json({ ok: true })
+    } catch (err) {
+        console.error('유가 공지 실패:', err.response?.data || err.message)
+        res.status(502).json({ ok: false, error: 'discord webhook failed' })
+    }
+})
+
+// 현재 유가 조회 (웹사이트나 봇 명령어용)
+app.get('/fuel/current', (req, res) => {
+    res.json({ ok: true, prices: fuelCurrentPrices })
+})
+
+
 app.listen(3000, () => {
     console.log('서버 실행 중 | http://localhost:3000')
 })
